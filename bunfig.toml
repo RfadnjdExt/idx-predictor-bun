@@ -1,0 +1,7 @@
+# Bun configuration
+[install]
+# Use production-optimized lockfile
+exact = false
+
+[install.cache]
+disable = false
