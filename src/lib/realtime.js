@@ -1,4 +1,3 @@
-// ── Market Hours (WIB = UTC+7) ────────────────────────────
 export function isMarketOpen() {
   const wib  = new Date(Date.now() + 7 * 3600 * 1000);
   const day  = wib.getUTCDay();
@@ -23,63 +22,68 @@ export function marketCountdown() {
   return 'Market TUTUP (weekend)';
 }
 
-// ── iTick WebSocket Manager ───────────────────────────────
-const MAX_RETRY = 5; // berhenti setelah 5x gagal
+const MAX_RETRY = 5;
+
+// Auth strategies untuk browser WebSocket (tidak support custom header)
+const AUTH_STRATEGIES = [
+  // 1. Token sebagai Sec-WebSocket-Protocol (satu-satunya "header" yang bisa dari browser)
+  (url, token) => new WebSocket(url, [token]),
+  // 2. Token sebagai query param
+  (url, token) => new WebSocket(`${url}?token=${encodeURIComponent(token)}`),
+  // 3. Tanpa auth di URL (kirim via pesan pertama)
+  (url, token) => new WebSocket(url),
+];
 
 export class ITickWS {
   constructor({ apiKey, onQuote, onStatus }) {
-    this.apiKey   = apiKey;
-    this.onQuote  = onQuote;
-    this.onStatus = onStatus;
-    this.ws       = null;
-    this.symbol   = null;
-    this.alive    = false;
-    this.retryN   = 0;
+    this.apiKey    = apiKey;
+    this.onQuote   = onQuote;
+    this.onStatus  = onStatus;
+    this.ws        = null;
+    this.symbol    = null;
+    this.alive     = false;
+    this.retryN    = 0;
+    this.stratIdx  = 0; // coba strategi auth satu per satu
   }
 
   connect(symbol) {
-    this.symbol = symbol;
-    this.alive  = true;
-    this.retryN = 0;
+    this.symbol   = symbol;
+    this.alive    = true;
+    this.retryN   = 0;
+    this.stratIdx = 0;
     this._open();
   }
 
   _open() {
     if (!this.alive) return;
 
-    // Stop setelah MAX_RETRY kali gagal
     if (this.retryN >= MAX_RETRY) {
-      this.onStatus('failed');
+      this.onStatus('error: gagal terhubung (cek API key)');
       this.alive = false;
       return;
     }
 
-    this.onStatus(this.retryN === 0 ? 'connecting' : `reconnecting (${this.retryN}/${MAX_RETRY})`);
+    const label = this.retryN === 0 ? 'connecting' : `reconnecting (${this.retryN}/${MAX_RETRY})`;
+    this.onStatus(label);
+
+    const url = 'wss://api.itick.org/stock';
+    const strategy = AUTH_STRATEGIES[this.stratIdx % AUTH_STRATEGIES.length];
 
     try {
-      // Coba dua metode auth:
-      // 1. Token sebagai query param (standar REST-over-WS)
-      // 2. Token dikirim sebagai pesan pertama (fallback)
-      this.ws = new WebSocket(`wss://api.itick.org/stock?token=${encodeURIComponent(this.apiKey)}`);
+      this.ws = strategy(url, this.apiKey);
     } catch (e) {
       this.onStatus('error: gagal membuka koneksi');
       return;
     }
 
     const timeout = setTimeout(() => {
-      if (this.ws?.readyState !== WebSocket.OPEN) {
-        this.ws?.close();
-      }
-    }, 8000); // timeout 8 detik
+      if (this.ws?.readyState !== WebSocket.OPEN) this.ws?.close();
+    }, 8000);
 
     this.ws.onopen = () => {
       clearTimeout(timeout);
-      this.retryN = 0;
-
-      // Kirim auth sebagai pesan pertama (metode alternatif)
+      // Kirim auth via pesan pertama sebagai fallback
       this.ws.send(JSON.stringify({ token: this.apiKey }));
-
-      // Lalu subscribe
       this._subscribe(this.symbol);
       this.onStatus('connected');
     };
@@ -88,8 +92,8 @@ export class ITickWS {
       try {
         const msg = JSON.parse(data);
 
-        // Handle error dari server
-        if (msg?.code && msg.code !== 200) {
+        // Server error — coba strategi auth berikutnya
+        if (msg?.code && msg.code !== 0) {
           this.onStatus(`error: ${msg.msg || msg.code}`);
           this.alive = false;
           this.ws?.close();
@@ -100,12 +104,12 @@ export class ITickWS {
         if (d?.type === 'quote') {
           this.onQuote({
             symbol:    d.s,
-            price:     d.ld,
+            price:     d.ld,   // last done
             open:      d.o,
             high:      d.h,
             low:       d.l,
-            change:    d.c,
-            changePct: d.pc,
+            change:    d.ch,   // ← fix: ch bukan c
+            changePct: d.chp,  // ← fix: chp bukan pc
             volume:    d.v,
             time:      d.t,
           });
@@ -113,22 +117,22 @@ export class ITickWS {
       } catch (_) {}
     };
 
-    this.ws.onerror = () => {
-      clearTimeout(timeout);
-    };
+    this.ws.onerror = () => clearTimeout(timeout);
 
-    this.ws.onclose = ({ code, reason }) => {
+    this.ws.onclose = ({ code }) => {
       clearTimeout(timeout);
-      if (!this.alive) { this.onStatus('disconnected'); return; }
+      if (!this.alive) { this.onStatus('error: gagal terhubung (cek API key)'); return; }
 
-      // Kode 4001/4003 = auth gagal — jangan retry
       if (code === 4001 || code === 4003) {
         this.onStatus('error: API key tidak valid');
         this.alive = false;
         return;
       }
 
+      // Ganti strategi auth setiap 2 retry
       this.retryN++;
+      if (this.retryN % 2 === 0) this.stratIdx++;
+
       const delay = Math.min(2000 * this.retryN, 10000);
       setTimeout(() => this._open(), delay);
     };
