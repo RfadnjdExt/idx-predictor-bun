@@ -1,10 +1,10 @@
 // ── Market Hours (WIB = UTC+7) ────────────────────────────
 export function isMarketOpen() {
-  const wib = new Date(Date.now() + 7 * 3600 * 1000);
-  const day  = wib.getUTCDay(); // 0=Sun 6=Sat
+  const wib  = new Date(Date.now() + 7 * 3600 * 1000);
+  const day  = wib.getUTCDay();
   if (day === 0 || day === 6) return false;
   const mins = wib.getUTCHours() * 60 + wib.getUTCMinutes();
-  return mins >= 9 * 60 && mins < 16 * 60; // 09:00–16:00 WIB
+  return mins >= 9 * 60 && mins < 16 * 60;
 }
 
 export function marketCountdown() {
@@ -12,11 +12,10 @@ export function marketCountdown() {
   const day  = wib.getUTCDay();
   const h    = wib.getUTCHours(), m = wib.getUTCMinutes();
   const mins = h * 60 + m;
-
   if (day >= 1 && day <= 5) {
     if (mins < 9 * 60) {
       const diff = 9 * 60 - mins;
-      return `Buka dalam ${Math.floor(diff/60)}j ${diff%60}m`;
+      return `Buka dalam ${Math.floor(diff / 60)}j ${diff % 60}m`;
     }
     if (mins < 16 * 60) return 'Market BUKA';
     return 'Market TUTUP (hari ini)';
@@ -25,6 +24,8 @@ export function marketCountdown() {
 }
 
 // ── iTick WebSocket Manager ───────────────────────────────
+const MAX_RETRY = 5; // berhenti setelah 5x gagal
+
 export class ITickWS {
   constructor({ apiKey, onQuote, onStatus }) {
     this.apiKey   = apiKey;
@@ -45,31 +46,61 @@ export class ITickWS {
 
   _open() {
     if (!this.alive) return;
-    this.onStatus('connecting');
-    // Browser WebSocket doesn't support custom headers,
-    // so token is passed as query param
-    const url = `wss://api.itick.org/stock?token=${encodeURIComponent(this.apiKey)}`;
-    try {
-      this.ws = new WebSocket(url);
-    } catch(e) {
-      this.onStatus('error');
+
+    // Stop setelah MAX_RETRY kali gagal
+    if (this.retryN >= MAX_RETRY) {
+      this.onStatus('failed');
+      this.alive = false;
       return;
     }
 
+    this.onStatus(this.retryN === 0 ? 'connecting' : `reconnecting (${this.retryN}/${MAX_RETRY})`);
+
+    try {
+      // Coba dua metode auth:
+      // 1. Token sebagai query param (standar REST-over-WS)
+      // 2. Token dikirim sebagai pesan pertama (fallback)
+      this.ws = new WebSocket(`wss://api.itick.org/stock?token=${encodeURIComponent(this.apiKey)}`);
+    } catch (e) {
+      this.onStatus('error: gagal membuka koneksi');
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        this.ws?.close();
+      }
+    }, 8000); // timeout 8 detik
+
     this.ws.onopen = () => {
+      clearTimeout(timeout);
       this.retryN = 0;
-      this.onStatus('connected');
+
+      // Kirim auth sebagai pesan pertama (metode alternatif)
+      this.ws.send(JSON.stringify({ token: this.apiKey }));
+
+      // Lalu subscribe
       this._subscribe(this.symbol);
+      this.onStatus('connected');
     };
 
     this.ws.onmessage = ({ data }) => {
       try {
         const msg = JSON.parse(data);
-        const d   = msg?.data;
+
+        // Handle error dari server
+        if (msg?.code && msg.code !== 200) {
+          this.onStatus(`error: ${msg.msg || msg.code}`);
+          this.alive = false;
+          this.ws?.close();
+          return;
+        }
+
+        const d = msg?.data;
         if (d?.type === 'quote') {
           this.onQuote({
             symbol:    d.s,
-            price:     d.ld,   // last done
+            price:     d.ld,
             open:      d.o,
             high:      d.h,
             low:       d.l,
@@ -79,16 +110,26 @@ export class ITickWS {
             time:      d.t,
           });
         }
-      } catch(_) {}
+      } catch (_) {}
     };
 
-    this.ws.onerror = () => this.onStatus('error');
+    this.ws.onerror = () => {
+      clearTimeout(timeout);
+    };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = ({ code, reason }) => {
+      clearTimeout(timeout);
       if (!this.alive) { this.onStatus('disconnected'); return; }
+
+      // Kode 4001/4003 = auth gagal — jangan retry
+      if (code === 4001 || code === 4003) {
+        this.onStatus('error: API key tidak valid');
+        this.alive = false;
+        return;
+      }
+
       this.retryN++;
-      const delay = Math.min(2000 * this.retryN, 15000);
-      this.onStatus(`reconnecting (${this.retryN})`);
+      const delay = Math.min(2000 * this.retryN, 10000);
       setTimeout(() => this._open(), delay);
     };
   }
@@ -96,21 +137,16 @@ export class ITickWS {
   _subscribe(symbol) {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({
-      ac: 'subscribe',
+      ac:     'subscribe',
       params: `${symbol}$ID`,
-      types: 'quote',
+      types:  'quote',
     }));
   }
 
   changeSymbol(newSymbol) {
     if (this.symbol === newSymbol) return;
-    // Unsubscribe old
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        ac: 'unsubscribe',
-        params: `${this.symbol}$ID`,
-        types: 'quote',
-      }));
+      this.ws.send(JSON.stringify({ ac: 'unsubscribe', params: `${this.symbol}$ID`, types: 'quote' }));
     }
     this.symbol = newSymbol;
     this._subscribe(newSymbol);
