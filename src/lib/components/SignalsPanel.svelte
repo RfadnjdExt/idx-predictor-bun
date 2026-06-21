@@ -1,30 +1,31 @@
 <script>
   import { idr, fmt } from '$lib/format.js';
-  export let stock;
-  export let signals = [];
 
-  $: last = stock?.data?.at(-1);
-  $: statusItems = last ? [
-    { l:'Trend MA',  v: last.ma5 > last.ma20 ? 'Bullish'    : 'Bearish',
+  let { stock, signals = [] } = $props();
+
+  let last = $derived(stock?.data?.at(-1));
+
+  let statusItems = $derived(last ? [
+    { l:'Trend MA',  v: last.ma5 > last.ma20 ? 'Bullish' : 'Bearish',
       bull: last.ma5 > last.ma20, bear: !(last.ma5 > last.ma20),
       sub: `MA5 ${last.ma5 > last.ma20 ? '>' : '<'} MA20` },
     { l:'RSI (14)',  v: last.rsi > 70 ? 'Overbought' : last.rsi < 30 ? 'Oversold' : 'Netral',
       bull: last.rsi < 30, bear: last.rsi > 70,
       sub: `Nilai: ${fmt(last.rsi, 1)}` },
-    { l:'MACD',      v: (last.mh ?? 0) > 0 ? 'Bullish'    : 'Bearish',
+    { l:'MACD',      v: (last.mh ?? 0) > 0 ? 'Bullish' : 'Bearish',
       bull: (last.mh ?? 0) > 0, bear: (last.mh ?? 0) < 0,
       sub: `Histogram: ${fmt(last.mh)}` },
     { l:'Bollinger', v: last.close > last.bb_u ? 'Di Atas Band' : last.close < last.bb_l ? 'Di Bawah Band' : 'Dalam Band',
       bull: last.close < last.bb_l, bear: last.close > last.bb_u,
       sub: last.bb_u && last.bb_l
-        ? `${((last.close - last.bb_l) / (last.bb_u - last.bb_l) * 100).toFixed(0)}% posisi dalam band`
+        ? `${((last.close - last.bb_l) / (last.bb_u - last.bb_l) * 100).toFixed(0)}% posisi`
         : '—' },
-  ] : [];
-  $: revSigs = [...signals].reverse();
+  ] : []);
+
+  let revSigs = $derived([...signals].reverse());
 </script>
 
 <div class="panel">
-  <!-- status grid -->
   <div class="grid4">
     {#each statusItems as it}
       <div class="scard" class:scard-bull={it.bull} class:scard-bear={it.bear}>
@@ -35,7 +36,6 @@
     {/each}
   </div>
 
-  <!-- signal list -->
   <div class="listcard">
     <div class="list-title">SINYAL TERDETEKSI · {signals.length} sinyal (terbaru pertama)</div>
     {#if revSigs.length === 0}
@@ -74,8 +74,8 @@
 .panel    { display:flex; flex-direction:column; gap:10px; }
 .grid4    { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
 .scard    { background:var(--surf); border:1px solid var(--border); border-radius:8px; padding:12px 14px; }
-.scard-bull { border-color: #00e67633; }
-.scard-bear { border-color: #ff3d5733; }
+.scard-bull { border-color:#00e67633; }
+.scard-bear { border-color:#ff3d5733; }
 .slabel   { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:1.2px; margin-bottom:6px; }
 .sval     { font-size:13px; font-weight:700; }
 .ssub     { font-size:10px; color:var(--muted); margin-top:3px; }
@@ -84,8 +84,8 @@
 .empty    { text-align:center; padding:40px; color:var(--muted); }
 .sig      { display:flex; align-items:center; gap:10px; background:var(--card); border-radius:7px;
             padding:10px 14px; margin-bottom:6px; }
-.sig-buy  { border-left: 3px solid var(--bull); }
-.sig-sell { border-left: 3px solid var(--bear); }
+.sig-buy  { border-left:3px solid var(--bull); }
+.sig-sell { border-left:3px solid var(--bear); }
 .badge    { font-family:monospace; font-weight:800; padding:4px 8px; border-radius:4px;
             font-size:11px; min-width:58px; text-align:center; color:#000; }
 .badge.buy  { background:var(--bull); }

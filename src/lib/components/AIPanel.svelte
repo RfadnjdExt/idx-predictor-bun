@@ -1,14 +1,14 @@
 <script>
   import { idr, fmt } from '$lib/format.js';
-  export let stock;
-  export let signals = [];
 
-  let aiResult  = null;
-  let aiLoading = false;
-  let aiError   = null;
+  let { stock, signals = [] } = $props();
 
-  $: rc = aiResult?.rec === 'BUY' ? '#00e676' : aiResult?.rec === 'SELL' ? '#ff3d57' : '#ffd740';
-  $: rl = aiResult?.rec === 'BUY' ? '◆ BELI'  : aiResult?.rec === 'SELL' ? '◆ JUAL'  : '◆ TAHAN';
+  let aiResult  = $state(null);
+  let aiLoading = $state(false);
+  let aiError   = $state(null);
+
+  let rc = $derived(aiResult?.rec === 'BUY' ? '#00e676' : aiResult?.rec === 'SELL' ? '#ff3d57' : '#ffd740');
+  let rl = $derived(aiResult?.rec === 'BUY' ? '◆ BELI'  : aiResult?.rec === 'SELL' ? '◆ JUAL'  : '◆ TAHAN');
 
   async function runAI() {
     if (!stock) return;
@@ -36,8 +36,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] }),
       });
-      const j    = await r.json();
-      const txt  = j.content?.[0]?.text ?? '';
+      const j     = await r.json();
+      const txt   = j.content?.[0]?.text ?? '';
       const match = txt.match(/\{[\s\S]*\}/);
       if (match) aiResult = JSON.parse(match[0]);
       else throw new Error('Format respons tidak valid');
@@ -55,12 +55,9 @@
       <div class="title">PREDIKSI AI · CLAUDE claude-sonnet-4-6</div>
       <div class="sub">Analisis berbasis indikator teknikal dengan Claude AI</div>
     </div>
-    <button class="run-btn" on:click={runAI} disabled={aiLoading}>
-      {#if aiLoading}
-        <span class="spin">◈</span> Menganalisis...
-      {:else}
-        ✦ Jalankan Analisis AI
-      {/if}
+    <button class="run-btn" onclick={runAI} disabled={aiLoading}>
+      {#if aiLoading}<span class="spin">◈</span> Menganalisis...
+      {:else}✦ Jalankan Analisis AI{/if}
     </button>
   </div>
 
@@ -84,7 +81,6 @@
     {@const tPct  = (((aiResult.target   - stock.price) / stock.price) * 100).toFixed(1)}
     {@const slPct = (((aiResult.stoploss - stock.price) / stock.price) * 100).toFixed(1)}
 
-    <!-- Recommendation banner -->
     <div class="rec-box" style="border-color:{rc}">
       <div class="rec-label">REKOMENDASI AI</div>
       <div class="rec-val mono" style="color:{rc}">{rl}</div>
@@ -95,7 +91,6 @@
       </div>
     </div>
 
-    <!-- Targets -->
     <div class="targets">
       <div class="tcard">
         <div class="tlabel">Harga Saat Ini</div>
@@ -113,19 +108,18 @@
       </div>
     </div>
 
-    <!-- Analysis -->
     <div class="acard">
       <div class="alabel">ANALISIS</div>
       <p class="atext">{aiResult.analisis}</p>
     </div>
 
     {#if aiResult.poin?.length}
-    <div class="acard">
-      <div class="alabel">POIN KUNCI</div>
-      {#each aiResult.poin as p}
-        <div class="kpoint"><span class="arrow">▸</span><span>{p}</span></div>
-      {/each}
-    </div>
+      <div class="acard">
+        <div class="alabel">POIN KUNCI</div>
+        {#each aiResult.poin as p}
+          <div class="kpoint"><span class="arrow">▸</span><span>{p}</span></div>
+        {/each}
+      </div>
     {/if}
 
     <div class="disc">⚠ Analisis AI bukan saran investasi profesional. Selalu lakukan riset mandiri.</div>
@@ -145,14 +139,12 @@
 .empty-icon  { font-size:46px; opacity:.3; margin-bottom:14px; }
 .empty-title { font-size:15px; color:var(--text); margin-bottom:6px; }
 .empty-sub   { font-size:12px; }
-.spin  { display:inline-block; animation: spin 1.2s linear infinite; }
-.pulse { animation: pulse 1.6s ease infinite; }
-
+.spin  { display:inline-block; animation:spin 1.2s linear infinite; }
+.pulse { animation:pulse 1.6s ease infinite; }
 .rec-box   { text-align:center; padding:22px; border-radius:10px; background:var(--card); border:2px solid; }
 .rec-label { font-size:9px; color:var(--muted); letter-spacing:2px; margin-bottom:8px; }
 .rec-val   { font-size:44px; font-weight:900; letter-spacing:4px; margin-bottom:8px; }
 .rec-meta  { font-size:12px; color:var(--muted); }
-
 .targets  { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
 .tcard    { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:12px; text-align:center; }
 .tcard-buy  { background:rgba(0,230,118,.07); border-color:rgba(0,230,118,.25); }
@@ -160,18 +152,15 @@
 .tlabel   { font-size:10px; color:var(--muted); margin-bottom:4px; }
 .tval     { font-size:15px; font-weight:800; }
 .tpct     { font-size:10px; margin-top:3px; }
-
 .acard  { background:var(--card); border-radius:8px; padding:12px 16px; }
 .alabel { font-size:9px; color:var(--muted); letter-spacing:1.5px; margin-bottom:8px; }
 .atext  { color:var(--text); font-size:13px; line-height:1.75; }
 .kpoint { display:flex; gap:8px; margin-bottom:7px; font-size:12px; color:var(--text); }
 .arrow  { color:var(--accent); min-width:14px; flex-shrink:0; }
-
 .disc   { font-size:10px; color:var(--muted); text-align:center; }
 .bull   { color:var(--bull); }
 .bear   { color:var(--bear); }
 .mono   { font-family:monospace; }
-
 @keyframes spin  { to { transform:rotate(360deg); } }
-@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.35} }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 </style>

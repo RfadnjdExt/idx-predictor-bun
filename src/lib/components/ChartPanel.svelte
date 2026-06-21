@@ -1,17 +1,17 @@
 <script>
   import { priceAction, macdAction, rsiAction } from '$lib/charts.js';
-  export let d90 = [];
+
+  let { d90 = [] } = $props();
 </script>
 
 <div class="panel">
-  <!-- legend -->
   <div class="legend">
     {#each [
-      { col:'#fff',     label:'Harga' },
-      { col:'#00e5ff',  label:'MA5' },
-      { col:'#ff9100',  label:'MA20' },
-      { col:'#d580ff',  label:'MA50' },
-      { col:'#4488ff',  label:'Bollinger Band', dash:true },
+      { col:'#fff',    label:'Harga' },
+      { col:'#00e5ff', label:'MA5' },
+      { col:'#ff9100', label:'MA20' },
+      { col:'#d580ff', label:'MA50' },
+      { col:'#4488ff', label:'Bollinger Band', dash:true },
     ] as l}
       <span class="leg-item">
         <span class="leg-line" style="background:{l.col}; {l.dash ? 'border-top:2px dashed '+l.col+';background:transparent' : ''}"></span>
@@ -20,7 +20,6 @@
     {/each}
   </div>
 
-  <!-- price -->
   <div class="card">
     <div class="clabel">HARGA · BOLLINGER BANDS · MA (90 Hari Terakhir)</div>
     <div class="cwrap" style="height:300px">
@@ -28,7 +27,6 @@
     </div>
   </div>
 
-  <!-- macd + rsi row -->
   <div class="row2">
     <div class="card">
       <div class="clabel">MACD (12, 26, 9)</div>
@@ -45,10 +43,7 @@
     <div class="card">
       <div class="clabel-row">
         <span class="clabel">RSI (14)</span>
-        <span class="rsi-hint">
-          <span style="color:#ff3d57">■</span> OB &gt;70 ·
-          <span style="color:#00e676">■</span> OS &lt;30
-        </span>
+        <span class="rsi-hint"><span style="color:#ff3d57">■</span> OB &gt;70 · <span style="color:#00e676">■</span> OS &lt;30</span>
       </div>
       <div class="cwrap" style="height:140px">
         <canvas use:rsiAction={d90}></canvas>

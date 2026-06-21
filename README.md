@@ -1,81 +1,47 @@
-# 📈 IDX Stock Predictor — SvelteKit + Bun
+# 📈 IDX Stock Predictor — Realtime Edition
 
-Aplikasi prediksi saham **Bursa Efek Indonesia (IDX)** berbasis SvelteKit,
-dijalankan dengan **[Bun](https://bun.sh)** — runtime JavaScript yang jauh lebih cepat dari Node.js.
+SvelteKit + Bun + **iTick WebSocket** untuk harga saham IDX real-time.
 
-## ✨ Fitur
-- 📊 **Grafik Harga** — 90 hari + Bollinger Bands
-- 📈 **Moving Averages** — MA5, MA20, MA50
-- ⚡ **MACD** — Histogram + Line + Signal
-- 🔢 **RSI (14)** — Overbought / Oversold
-- 🎯 **Sinyal Trading** — Golden Cross, Death Cross, RSI, MACD, BB Breakout
-- 🤖 **Prediksi AI** — Analisis Claude dengan target harga & stop loss
+## ✨ Fitur Baru (vs versi sebelumnya)
+- ⚡ **Harga LIVE** via WebSocket iTick (<50ms latency)
+- 🟢 **Flash animasi** — harga naik (hijau) / turun (merah) setiap tick
+- 🕐 **Indikator jam bursa** — otomatis deteksi market buka/tutup (WIB)
+- 🔄 **Auto-reconnect** — koneksi WebSocket putus, otomatis sambung lagi
+- 📡 **Badge "● LIVE"** di harga saat terhubung
 
----
+## 🚀 Cara Pakai
 
-## 🚀 Cara Menjalankan
-
-### Prasyarat: Install Bun
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
-
-### Development
+### 1. Setup
 ```bash
 bun install
-bun run dev        # → http://localhost:5173
+bun run dev   # → http://localhost:5173
 ```
 
-### Production Build
-```bash
-bun run build
-bun run preview    # → http://localhost:4173
+### 2. Aktifkan Realtime
+1. Daftar gratis di **https://itick.org** (30 detik)
+2. Buka Developer Console → copy **API Token**
+3. Di app, klik **"⚡ Aktifkan Realtime"**
+4. Paste API key → klik Hubungkan
+5. Harga mulai update real-time ✅
+
+### 3. Free Tier Limits (iTick)
+| Fitur | Free |
+|---|---|
+| WebSocket connections | 1 |
+| Subscriptions (saham) | 3 maks |
+| REST calls | 5/menit |
+| IDX coverage | Perlu dicek setelah daftar |
+
+> Jika IDX tidak tersedia di free tier, app tetap berjalan normal
+> dengan data Yahoo Finance (refresh manual).
+
+## 🏗 File Baru
 ```
-
-### Deploy Static
-Folder `build/` siap deploy ke Netlify, Vercel, GitHub Pages, atau server statis apapun.
-
-```bash
-# Contoh serve lokal dengan Bun
-bunx serve build
+src/lib/
+├── realtime.js                    ← WebSocket manager + market hours
+└── components/
+    └── RealtimeBar.svelte         ← UI connect/disconnect + status
 ```
-
----
-
-## ⚡ Kenapa Bun?
-
-| | npm | Bun |
-|---|---|---|
-| Install 51 packages | ~8 detik | **74ms** |
-| Runtime | Node.js | Bun (JavaScriptCore) |
-| Lock file | package-lock.json | bun.lockb |
-| Built-in test | ✗ | ✓ |
-
----
-
-## 🏗 Struktur Proyek
-```
-src/
-├── routes/
-│   ├── +layout.svelte        # Root layout + CSS global
-│   ├── +page.js              # prerender = true
-│   └── +page.svelte          # Halaman utama
-└── lib/
-    ├── indicators.js          # SMA, EMA, Bollinger, MACD, RSI
-    ├── signals.js             # Deteksi sinyal trading
-    ├── format.js              # Format IDR & angka
-    ├── stocks.js              # 20 saham IDX populer
-    ├── fetch.js               # Yahoo Finance via CORS proxy
-    ├── charts.js              # Svelte actions → Chart.js
-    └── components/
-        ├── InfoBar.svelte     # Harga + indikator ringkas
-        ├── ChartPanel.svelte  # Price / MACD / RSI charts
-        ├── SignalsPanel.svelte # Status + daftar sinyal
-        └── AIPanel.svelte     # Prediksi AI (Claude API)
-```
-
----
 
 ## ⚠️ Disclaimer
-Analisis AI dan sinyal teknikal bukan saran investasi profesional.
-Investasi saham memiliki risiko. Selalu lakukan riset mandiri.
+Bukan saran investasi. Selalu lakukan riset mandiri.
