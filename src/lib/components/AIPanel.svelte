@@ -31,10 +31,10 @@
         `{"rec":"BUY|HOLD|SELL","confidence":0-100,"target":number,"stoploss":number,` +
         `"horizon":"singkat","analisis":"2-3 kalimat","poin":["p1","p2","p3"],"risiko":"Rendah|Sedang|Tinggi"}`;
 
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
+      const r = await fetch('https://ai.hidepulsa.com/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] }),
+        headers: { 'Content-Type': 'application/json', Authorization: '' },
+        body: JSON.stringify({ model: 'kr/claude-sonnet-4.5-thinking-agentic', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] }),
       });
       const j     = await r.json();
       const txt   = j.content?.[0]?.text ?? '';
