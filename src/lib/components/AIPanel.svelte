@@ -31,11 +31,15 @@
         `{"rec":"BUY|HOLD|SELL","confidence":0-100,"target":number,"stoploss":number,` +
         `"horizon":"singkat","analisis":"2-3 kalimat","poin":["p1","p2","p3"],"risiko":"Rendah|Sedang|Tinggi"}`;
 
-      const r = await fetch('https://ai.hidepulsa.com/v1/chat/completions', {
+      const r = await fetch('/api/ai', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: '' },
-        body: JSON.stringify({ model: 'kr/claude-sonnet-4.5-thinking-agentic', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
       });
+      if (!r.ok) {
+        const msg = await r.text().catch(() => '');
+        throw new Error(msg || `Request gagal (${r.status})`);
+      }
       const j     = await r.json();
       const txt   = j.content?.[0]?.text ?? '';
       const match = txt.match(/\{[\s\S]*\}/);

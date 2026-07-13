@@ -9,7 +9,6 @@
   import AIPanel       from '$lib/components/AIPanel.svelte';
   import RealtimeBar   from '$lib/components/RealtimeBar.svelte';
 
-  // ── State (Svelte 5 runes) ─────────────────────────────
   let query     = $state('BBCA');
   let stock     = $state(null);
   let signals   = $state([]);
@@ -19,7 +18,6 @@
   let showDrop  = $state(false);
   let liveQuote = $state(null);
 
-  // ── Derived ────────────────────────────────────────────
   let d90 = $derived(stock?.data?.slice(-90) ?? []);
   let last = $derived(stock?.data?.at(-1));
   let trendScore = $derived(
@@ -40,7 +38,6 @@
     { label: '🤖 Prediksi AI',        idx: 2 },
   ];
 
-  // ── Actions ────────────────────────────────────────────
   function handleQuote(q) { liveQuote = q; }
 
   async function doLoad() {

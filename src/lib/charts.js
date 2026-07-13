@@ -22,7 +22,6 @@ const tipCfg = fn => ({
   callbacks: { label: fn },
 });
 
-// ── PRICE ACTION ──────────────────────────────────────────
 export function priceAction(node, data) {
   let chart = null;
   function build(d) {
@@ -59,7 +58,6 @@ export function priceAction(node, data) {
   return { update: d => build(d), destroy: () => { if (chart) chart.destroy(); } };
 }
 
-// ── MACD ACTION ───────────────────────────────────────────
 export function macdAction(node, data) {
   let chart = null;
   function build(d) {
@@ -89,7 +87,6 @@ export function macdAction(node, data) {
   return { update: d => build(d), destroy: () => { if (chart) chart.destroy(); } };
 }
 
-// ── RSI ACTION ────────────────────────────────────────────
 export function rsiAction(node, data) {
   let chart = null;
   function build(d) {

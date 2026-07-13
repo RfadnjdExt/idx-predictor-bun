@@ -56,7 +56,6 @@
 </script>
 
 <div class="bar">
-  <!-- Market hours -->
   <div class="mkt" class:open={mktOpen} class:closed={!mktOpen}>
     <span class="mkt-dot"></span>
     {mktLabel}

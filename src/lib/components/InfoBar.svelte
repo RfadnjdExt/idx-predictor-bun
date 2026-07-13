@@ -9,7 +9,6 @@
   let changePct = $derived(liveQuote?.changePct ?? stock?.changePct);
   let up        = $derived((change ?? 0) >= 0);
 
-  // Flash animation on price tick
   let flash     = $state('');
   let prevPrice = $state(null);
 

@@ -22,7 +22,7 @@ export function marketCountdown() {
   return 'Market TUTUP (weekend)';
 }
 
-const POLL_INTERVAL = 5000; // 5 detik
+const POLL_INTERVAL = 5000;
 
 export class ITickWS {
   constructor({ apiKey, onQuote, onStatus }) {
@@ -38,7 +38,7 @@ export class ITickWS {
     this.symbol = symbol;
     this.alive  = true;
     this.onStatus('connecting');
-    this._poll(); // langsung poll pertama
+    this._poll();
     this.timer = setInterval(() => this._poll(), POLL_INTERVAL);
   }
 
@@ -77,7 +77,7 @@ export class ITickWS {
   changeSymbol(newSymbol) {
     if (this.symbol === newSymbol) return;
     this.symbol = newSymbol;
-    this._poll(); // langsung poll tanpa tunggu interval
+    this._poll();
   }
 
   disconnect() {
