@@ -1,5 +1,6 @@
 <script>
   import { idr, fmt } from '$lib/format.js';
+  import { debugLog, debugError } from '$lib/debug.js';
 
   let { stock, signals = [] } = $props();
 
@@ -36,16 +37,23 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       });
+      debugLog('HTTP status', r.status);
       if (!r.ok) {
         const msg = await r.text().catch(() => '');
         throw new Error(msg || `Request gagal (${r.status})`);
       }
       const j     = await r.json();
-      const txt   = j.content?.[0]?.text ?? '';
+      debugLog('Raw response body', j);
+      const txt   = j.choices?.[0]?.message?.content ?? j.content?.[0]?.text ?? '';
+      debugLog('Extracted text', txt);
       const match = txt.match(/\{[\s\S]*\}/);
       if (match) aiResult = JSON.parse(match[0]);
-      else throw new Error('Format respons tidak valid');
+      else {
+        debugError('No JSON object found in extracted text', { txt, fullResponse: j });
+        throw new Error('Format respons tidak valid');
+      }
     } catch(e) {
+      debugError('runAI failed', e);
       aiError = e.message;
     } finally {
       aiLoading = false;

@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
 const AI_URL   = 'https://ai.hidepulsa.com/v1/chat/completions';
-const AI_MODEL = 'kr/claude-sonnet-4.5-thinking-agentic';
+const AI_MODEL = 'ag/gemini-pro-agent';
 
 export async function POST({ request }) {
   const apiKey = env.AI_API_KEY;
@@ -30,7 +30,7 @@ export async function POST({ request }) {
     },
     body: JSON.stringify({
       model: AI_MODEL,
-      max_tokens: 1000,
+      max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
