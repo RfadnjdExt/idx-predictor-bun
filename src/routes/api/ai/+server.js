@@ -41,5 +41,8 @@ export async function POST({ request }) {
   }
 
   const data = await upstream.json();
-  return json(data);
+  // Sertakan nama model yang benar-benar dipakai, supaya frontend tidak
+  // perlu hardcode nama model di UI dan otomatis ikut berubah kalau
+  // AI_MODEL diganti di sini.
+  return json({ ...data, model: AI_MODEL });
 }

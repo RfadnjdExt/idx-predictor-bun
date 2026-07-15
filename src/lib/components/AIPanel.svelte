@@ -7,9 +7,19 @@
   let aiResult  = $state(null);
   let aiLoading = $state(false);
   let aiError   = $state(null);
+  let aiModel   = $state(null); // diisi dari response server, bukan hardcode
 
   let rc = $derived(aiResult?.rec === 'BUY' ? '#00e676' : aiResult?.rec === 'SELL' ? '#ff3d57' : '#ffd740');
   let rl = $derived(aiResult?.rec === 'BUY' ? '◆ BELI'  : aiResult?.rec === 'SELL' ? '◆ JUAL'  : '◆ TAHAN');
+
+  // "ag/gemini-pro-agent" -> "GEMINI PRO AGENT", "kr/claude-sonnet-4.5" -> "CLAUDE SONNET 4.5"
+  function formatModelLabel(modelId) {
+    if (!modelId) return 'AI';
+    const name = modelId.includes('/') ? modelId.split('/').pop() : modelId;
+    return name.replace(/[-.]/g, ' ').toUpperCase();
+  }
+
+  let modelLabel = $derived(formatModelLabel(aiModel));
 
   async function runAI() {
     if (!stock) return;
@@ -44,6 +54,7 @@
       }
       const j     = await r.json();
       debugLog('Raw response body', j);
+      aiModel = j.model ?? null;
       const txt   = j.choices?.[0]?.message?.content ?? j.content?.[0]?.text ?? '';
       debugLog('Extracted text', txt);
       const match = txt.match(/\{[\s\S]*\}/);
@@ -64,8 +75,8 @@
 <div class="panel">
   <div class="header">
     <div>
-      <div class="title">PREDIKSI AI · CLAUDE claude-sonnet-4-6</div>
-      <div class="sub">Analisis berbasis indikator teknikal dengan Claude AI</div>
+      <div class="title">PREDIKSI AI{aiModel ? ` · ${modelLabel}` : ''}</div>
+      <div class="sub">Analisis berbasis indikator teknikal dengan AI</div>
     </div>
     <button class="run-btn" onclick={runAI} disabled={aiLoading}>
       {#if aiLoading}<span class="spin">◈</span> Menganalisis...
