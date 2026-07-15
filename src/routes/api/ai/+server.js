@@ -1,8 +1,10 @@
 import { json, error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
-const AI_URL   = 'https://ai.hidepulsa.com/v1/chat/completions';
-const AI_MODEL = 'ag/gemini-pro-agent';
+const AI_URL = 'https://ai.hidepulsa.com/v1/chat/completions';
+// Fallback dipakai kalau AI_MODEL tidak diset di .env, supaya app tetap
+// jalan di local/dev tanpa perlu konfigurasi tambahan.
+const AI_MODEL = env.AI_MODEL || 'kr/claude-sonnet-4.5-thinking-agentic';
 
 export async function POST({ request }) {
   const apiKey = env.AI_API_KEY;
