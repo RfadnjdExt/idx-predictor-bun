@@ -8,6 +8,7 @@
   let aiLoading = $state(false);
   let aiError   = $state(null);
   let aiModel   = $state(null); // diisi dari response server, bukan hardcode
+  let buyPrice  = $state('');   // harga beli user, khusus untuk sesi analisis saat ini
 
   let rc = $derived(aiResult?.rec === 'BUY' ? '#00e676' : aiResult?.rec === 'SELL' ? '#ff3d57' : '#ffd740');
   let rl = $derived(aiResult?.rec === 'BUY' ? '◆ BELI'  : aiResult?.rec === 'SELL' ? '◆ JUAL'  : '◆ TAHAN');
@@ -21,6 +22,23 @@
 
   let modelLabel = $derived(formatModelLabel(aiModel));
 
+  // Harga beli user (angka), null kalau kosong/invalid
+  let buyPriceNum = $derived.by(() => {
+    const n = parseFloat(String(buyPrice ?? '').replace(/[^0-9.]/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  });
+
+  function plInfo(fromPrice) {
+    if (!buyPriceNum || fromPrice == null) return null;
+    const diff = fromPrice - buyPriceNum;
+    const pct  = (diff / buyPriceNum) * 100;
+    return { diff, pct, positive: diff >= 0 };
+  }
+
+  let posNow    = $derived(stock ? plInfo(stock.price) : null);
+  let posTarget = $derived(aiResult ? plInfo(aiResult.target) : null);
+  let posStop   = $derived(aiResult ? plInfo(aiResult.stoploss) : null);
+
   async function runAI() {
     if (!stock) return;
     aiLoading = true; aiError = null;
@@ -29,6 +47,7 @@
       const last = s.data.at(-1);
       const last5 = s.data.slice(-5).map(d => `${d.ds}:${idr(d.close)}`).join(', ');
       const sigs5 = signals.slice(-5).map(sg => `${sg.type}-${sg.label}`).join('; ') || 'Tidak ada';
+      const bp = buyPriceNum;
 
       const prompt =
         `Kamu analis saham profesional Indonesia. Analisis saham IDX ini:\n\n` +
@@ -38,9 +57,16 @@
         `RSI=${fmt(last.rsi,1)} MACD=${fmt(last.ml)} Signal=${fmt(last.ms)} Hist=${fmt(last.mh)}\n` +
         `BB Upper=${idr(last.bb_u)} Mid=${idr(last.bb_m)} Lower=${idr(last.bb_l)}\n\n` +
         `5 HARI TERAKHIR: ${last5}\nSINYAL: ${sigs5}\n\n` +
+        (bp
+          ? `POSISI USER: User sudah membeli/memegang saham ini di harga beli ${idr(bp)}. ` +
+            `Harga sekarang ${idr(s.price)} (floating ${(((s.price - bp) / bp) * 100).toFixed(1)}%). ` +
+            `Pertimbangkan harga beli ini saat memberi rekomendasi dan target/stoploss.\n\n`
+          : '') +
         `Balas HANYA JSON (tanpa backtick):\n` +
         `{"rec":"BUY|HOLD|SELL","confidence":0-100,"target":number,"stoploss":number,` +
-        `"horizon":"singkat","analisis":"2-3 kalimat","poin":["p1","p2","p3"],"risiko":"Rendah|Sedang|Tinggi"}`;
+        `"horizon":"singkat","analisis":"2-3 kalimat","poin":["p1","p2","p3"],"risiko":"Rendah|Sedang|Tinggi"` +
+        (bp ? `,"aksi_posisi":"1 kalimat saran khusus untuk posisi yang sudah dibeli user di harga ${idr(bp)}"` : '') +
+        `}`;
 
       const r = await fetch('/api/ai', {
         method: 'POST',
@@ -82,6 +108,26 @@
       {#if aiLoading}<span class="spin">◈</span> Menganalisis...
       {:else}✦ Jalankan Analisis AI{/if}
     </button>
+  </div>
+
+  <div class="buy-row">
+    <label class="buy-label" for="buyPrice">Harga Beli Saya (opsional)</label>
+    <div class="buy-input-wrap">
+      <span class="buy-prefix">Rp</span>
+      <input
+        id="buyPrice"
+        class="buy-input mono"
+        type="text"
+        inputmode="numeric"
+        placeholder="cth. 9500"
+        bind:value={buyPrice}
+      />
+    </div>
+    {#if posNow}
+      <div class="buy-pl" class:bull={posNow.positive} class:bear={!posNow.positive}>
+        {posNow.positive ? '▲' : '▼'} {idr(Math.abs(posNow.diff))} ({posNow.positive ? '+' : ''}{posNow.pct.toFixed(1)}%)
+      </div>
+    {/if}
   </div>
 
   {#if aiError}
@@ -131,6 +177,35 @@
       </div>
     </div>
 
+    {#if buyPriceNum}
+      <div class="acard pos-card">
+        <div class="alabel">POSISI ANDA · Beli di {idr(buyPriceNum)}</div>
+        <div class="pos-grid">
+          <div class="pos-item">
+            <div class="pos-item-label">Floating (sekarang)</div>
+            <div class="pos-item-val mono" class:bull={posNow?.positive} class:bear={!posNow?.positive}>
+              {posNow ? `${posNow.positive ? '+' : ''}${idr(posNow.diff)} (${posNow.positive ? '+' : ''}${posNow.pct.toFixed(1)}%)` : '—'}
+            </div>
+          </div>
+          <div class="pos-item">
+            <div class="pos-item-label">Jika kena Target 🎯</div>
+            <div class="pos-item-val mono bull">
+              {posTarget ? `+${idr(posTarget.diff)} (+${posTarget.pct.toFixed(1)}%)` : '—'}
+            </div>
+          </div>
+          <div class="pos-item">
+            <div class="pos-item-label">Jika kena Stop Loss 🛑</div>
+            <div class="pos-item-val mono bear">
+              {posStop ? `${idr(posStop.diff)} (${posStop.pct.toFixed(1)}%)` : '—'}
+            </div>
+          </div>
+        </div>
+        {#if aiResult.aksi_posisi}
+          <div class="pos-note">💡 {aiResult.aksi_posisi}</div>
+        {/if}
+      </div>
+    {/if}
+
     <div class="acard">
       <div class="alabel">ANALISIS</div>
       <p class="atext">{aiResult.analisis}</p>
@@ -158,6 +233,22 @@
            padding:9px 20px; color:#fff; font-weight:700; font-size:13px; display:flex; align-items:center; gap:6px; }
 .run-btn:hover:not(:disabled) { filter:brightness(1.1); }
 .err     { background:rgba(255,61,87,.1); border:1px solid var(--bear); border-radius:8px; padding:10px; color:var(--bear); font-size:13px; }
+.buy-row       { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+                 background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+.buy-label     { font-size:11px; color:var(--muted); white-space:nowrap; }
+.buy-input-wrap{ display:flex; align-items:center; background:var(--surf); border:1px solid var(--border);
+                 border-radius:6px; padding:4px 10px; gap:4px; }
+.buy-prefix    { font-size:12px; color:var(--muted); }
+.buy-input     { background:transparent; border:none; color:var(--text); font-size:13px; width:110px; }
+.buy-input:focus { outline:none; }
+.buy-pl        { font-size:12px; font-weight:700; margin-left:auto; }
+.pos-card      { border:1px solid var(--border); }
+.pos-grid      { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:4px; }
+.pos-item      { text-align:center; }
+.pos-item-label{ font-size:9px; color:var(--muted); margin-bottom:4px; }
+.pos-item-val  { font-size:13px; font-weight:800; }
+.pos-note      { margin-top:10px; font-size:12px; color:var(--text); background:var(--surf);
+                 border-radius:6px; padding:8px 10px; }
 .empty   { text-align:center; padding:60px; color:var(--muted); }
 .empty-icon  { font-size:46px; opacity:.3; margin-bottom:14px; }
 .empty-title { font-size:15px; color:var(--text); margin-bottom:6px; }

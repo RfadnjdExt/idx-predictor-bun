@@ -132,7 +132,9 @@
     {:else if activeTab === 1}
       <SignalsPanel {stock} {signals} />
     {:else if activeTab === 2}
-      <AIPanel {stock} {signals} />
+      {#key stock.ticker}
+        <AIPanel {stock} {signals} />
+      {/key}
     {/if}
   {/if}
 </main>
