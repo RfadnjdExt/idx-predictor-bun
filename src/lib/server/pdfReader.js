@@ -254,7 +254,25 @@ function loadObjects(buffer) {
 
       const endIdx = buffer.indexOf('endstream', sPos, 'latin1');
       let dataEnd = endIdx === -1 ? buffer.length : endIdx;
-      while (dataEnd > sPos && (buffer[dataEnd - 1] === 0x0a || buffer[dataEnd - 1] === 0x0d)) dataEnd--;
+
+      // Kalau dict punya /Length langsung (bukan indirect reference), pakai
+      // itu sebagai batas pasti panjang stream. INI PENTING: stream berisi
+      // data biner (hasil FlateDecode), jadi byte terakhirnya bisa saja
+      // KEBETULAN bernilai 0x0a/0x0d. Sebelumnya kode ini menebak batas
+      // stream dengan membuang SEMUA byte 0x0a/0x0d yang mepet sebelum kata
+      // "endstream" — kalau byte data biner asli yang terakhir kebetulan
+      // 0x0a/0x0d, itu ikut terbuang dan stream jadi terpotong 1+ byte,
+      // sehingga zlib.inflateSync gagal ("unexpected end of file").
+      // /Length dari dict adalah sumber kebenaran yang pasti; hanya jatuh
+      // balik ke tebak-tebakan EOL kalau /Length tidak tersedia langsung
+      // (mis. berupa indirect reference yang objeknya belum ter-parse).
+      const declaredLength = isDict(value) && typeof value['Length'] === 'number' ? value['Length'] : null;
+      if (declaredLength != null && sPos + declaredLength <= (endIdx === -1 ? buffer.length : endIdx + 'endstream'.length)) {
+        dataEnd = sPos + declaredLength;
+      } else {
+        while (dataEnd > sPos && (buffer[dataEnd - 1] === 0x0a || buffer[dataEnd - 1] === 0x0d)) dataEnd--;
+      }
+
       rawStream = buffer.subarray(sPos, dataEnd);
 
       objRegex.lastIndex = endIdx === -1 ? latin1.length : endIdx + 'endstream'.length;
