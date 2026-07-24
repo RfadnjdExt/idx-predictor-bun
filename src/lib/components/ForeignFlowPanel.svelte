@@ -1,6 +1,10 @@
 <script>
   import { idr, volFmt } from '$lib/format.js';
   import { debugLog, debugError } from '$lib/debug.js';
+  import { loadStock } from '$lib/fetch.js';
+  import { detectSignals } from '$lib/signals.js';
+
+  const CONCURRENCY = 3;
 
   let fileInput  = $state(null);
   let fileName   = $state('');
@@ -8,17 +12,12 @@
   let parseError = $state(null);
   let result     = $state(null); // { totalRows, netBuyCount, cheaperHalfCount, rows }
 
-  let aiResult  = $state(null);
-  let aiLoading = $state(false);
-  let aiError   = $state(null);
-  let aiModel   = $state(null);
+  // code -> { status: 'loading'|'done'|'error', indicator, score, lastSignal, price, message }
+  let signalMap = $state({});
+  let checking  = $state(false);
 
-  function formatModelLabel(modelId) {
-    if (!modelId) return 'AI';
-    const name = modelId.includes('/') ? modelId.split('/').pop() : modelId;
-    return name.replace(/[-.]/g, ' ').toUpperCase();
-  }
-  let modelLabel = $derived(formatModelLabel(aiModel));
+  let doneCount  = $derived(Object.values(signalMap).filter((s) => s.status !== 'loading').length);
+  let totalCount = $derived(result?.rows?.length ?? 0);
 
   function pickFile() {
     fileInput?.click();
@@ -29,8 +28,7 @@
     if (!file) return;
     fileName   = file.name;
     result     = null;
-    aiResult   = null;
-    aiError    = null;
+    signalMap  = {};
     parseError = null;
     parsing    = true;
 
@@ -53,62 +51,57 @@
     }
   }
 
-  async function runAI() {
-    if (!result?.rows?.length) return;
-    aiLoading = true; aiError = null; aiResult = null;
-    try {
-      const rowsText = result.rows
-        .map(
-          (r) =>
-            `${r.no}. ${r.code} avg=${idr(r.avgPrice)} netValue=${r.netForeignValue.toLocaleString()} ` +
-            `netBuyVol=${r.netForeignBuyVolume.toLocaleString()} buyVol=${r.foreignBuyVolume.toLocaleString()}`
-        )
-        .join('\n');
-
-      const prompt =
-        `Kamu analis saham profesional Indonesia. Berikut daftar saham IDX yang sudah difilter dari data ` +
-        `Foreign Transaction Midday (Stockbit): hanya saham dengan net BUY asing, diambil setengah dengan ` +
-        `harga rata-rata (avg) termurah, lalu diurutkan dari volume beli asing (buyVol) terbanyak ke tersedikit.\n\n` +
-        `Total baris terbaca: ${result.totalRows}, net BUY asing: ${result.netBuyCount}, ` +
-        `diambil (1/2 termurah): ${result.cheaperHalfCount}.\n\n` +
-        `DAFTAR SAHAM:\n${rowsText}\n\n` +
-        `Tugas kamu: pilih maksimal 5 saham paling menarik dari daftar ini untuk dipertimbangkan trader jangka ` +
-        `pendek, dengan alasan singkat berbasis data (harga murah relatif, volume beli asing besar, dsb).\n\n` +
-        `Balas HANYA JSON (tanpa backtick):\n` +
-        `{"ringkasan":"2-3 kalimat ringkasan kondisi aliran dana asing hari ini",` +
-        `"pilihan":[{"code":"KODE","alasan":"1 kalimat"}]}`;
-
-      const r = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-      debugLog('HTTP status', r.status);
-      if (!r.ok) {
-        const msg = await r.text().catch(() => '');
-        throw new Error(msg || `Request gagal (${r.status})`);
-      }
-      const j = await r.json();
-      debugLog('Raw response body', j);
-      aiModel = j.model ?? null;
-      const txt = j.choices?.[0]?.message?.content ?? j.content?.[0]?.text ?? '';
-      const match = txt.match(/\{[\s\S]*\}/);
-      if (match) aiResult = JSON.parse(match[0]);
-      else {
-        debugError('No JSON object found in extracted text', { txt, fullResponse: j });
-        throw new Error('Format respons tidak valid');
-      }
-    } catch (e) {
-      debugError('runAI (foreign flow) failed', e);
-      aiError = e.message;
-    } finally {
-      aiLoading = false;
-    }
+  // Skor tren sederhana dari indikator hari terakhir, sama seperti di halaman utama:
+  // MA5 vs MA20, MA20 vs MA50, RSI vs 50, MACD histogram vs 0. Rentang -2..+2.
+  function computeIndicator(data) {
+    const last = data.at(-1);
+    if (!last) return { indicator: 'N/A', score: 0 };
+    const score =
+      [last.ma5 > last.ma20, last.ma20 > last.ma50, last.rsi > 50, (last.mh ?? 0) > 0].filter(Boolean).length - 2;
+    const indicator = score >= 1 ? 'BUY' : score <= -1 ? 'SELL' : 'HOLD';
+    return { indicator, score, rsi: last.rsi };
   }
 
-  // Otomatis jalankan analisis AI begitu hasil parsing PDF siap.
+  async function checkAllSignals() {
+    if (!result?.rows?.length) return;
+    checking = true;
+    const initial = {};
+    for (const r of result.rows) initial[r.code] = { status: 'loading' };
+    signalMap = initial;
+
+    const queue = [...result.rows];
+
+    async function worker() {
+      while (queue.length) {
+        const row = queue.shift();
+        try {
+          const s = await loadStock(row.code);
+          const sigs = detectSignals(s.data);
+          const { indicator, score } = computeIndicator(s.data);
+          signalMap = {
+            ...signalMap,
+            [row.code]: {
+              status: 'done',
+              indicator,
+              score,
+              price: s.price,
+              lastSignal: sigs.at(-1)?.label ?? null,
+            },
+          };
+        } catch (e) {
+          debugError(`checkAllSignals failed for ${row.code}`, e);
+          signalMap = { ...signalMap, [row.code]: { status: 'error', message: e.message } };
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    checking = false;
+  }
+
+  // Otomatis cek sinyal begitu hasil parsing PDF siap.
   $effect(() => {
-    if (result?.rows?.length) runAI();
+    if (result?.rows?.length) checkAllSignals();
   });
 </script>
 
@@ -154,16 +147,30 @@
       <div class="stat"><div class="stat-val mono">{result.cheaperHalfCount}</div><div class="stat-label">1/2 Termurah</div></div>
     </div>
 
+    <div class="signal-bar">
+      <div class="signal-status">
+        {#if checking}
+          <span class="spin">◈</span> Mengecek sinyal teknikal... ({doneCount}/{totalCount})
+        {:else}
+          ✓ Sinyal dicek untuk {doneCount}/{totalCount} saham
+        {/if}
+      </div>
+      {#if !checking}
+        <button class="rerun-btn" onclick={checkAllSignals}>↻ Cek Ulang</button>
+      {/if}
+    </div>
+
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>#</th><th>Kode</th><th>Avg Price</th><th>Net Value</th>
-            <th>Net Buy Vol</th><th>Sell Vol</th><th>Buy Vol</th>
+            <th>Net Buy Vol</th><th>Sell Vol</th><th>Buy Vol</th><th>Sinyal</th>
           </tr>
         </thead>
         <tbody>
           {#each result.rows as r}
+            {@const sig = signalMap[r.code]}
             <tr>
               <td class="mono">{r.no}</td>
               <td class="mono code">{r.code}</td>
@@ -172,44 +179,32 @@
               <td class="mono">{volFmt(r.netForeignBuyVolume)}</td>
               <td class="mono">{volFmt(r.foreignSellVolume)}</td>
               <td class="mono">{volFmt(r.foreignBuyVolume)}</td>
+              <td class="sig-cell">
+                {#if !sig || sig.status === 'loading'}
+                  <span class="badge badge-wait">···</span>
+                {:else if sig.status === 'error'}
+                  <span class="badge badge-na" title={sig.message}>N/A</span>
+                {:else}
+                  <span
+                    class="badge"
+                    class:badge-buy={sig.indicator === 'BUY'}
+                    class:badge-sell={sig.indicator === 'SELL'}
+                    class:badge-hold={sig.indicator === 'HOLD'}
+                  >
+                    {sig.indicator === 'BUY' ? '▲ BUY' : sig.indicator === 'SELL' ? '▼ SELL' : '● HOLD'}
+                  </span>
+                  {#if sig.lastSignal}
+                    <div class="sig-sub">{sig.lastSignal}</div>
+                  {/if}
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
       </table>
     </div>
 
-    <div class="ai-block">
-      <div class="ai-header">
-        <div class="alabel">ANALISIS AI{aiModel ? ` · ${modelLabel}` : ''}</div>
-        {#if !aiLoading}
-          <button class="rerun-btn" onclick={runAI}>↻ Jalankan Ulang</button>
-        {/if}
-      </div>
-
-      {#if aiLoading}
-        <div class="empty small">
-          <div class="empty-icon pulse">◈</div>
-          <div class="empty-sub">AI sedang memilih saham paling menarik...</div>
-        </div>
-      {:else if aiError}
-        <div class="err">⚠ {aiError}</div>
-      {:else if aiResult}
-        <div class="acard">
-          <p class="atext">{aiResult.ringkasan}</p>
-        </div>
-        {#if aiResult.pilihan?.length}
-          <div class="picks">
-            {#each aiResult.pilihan as p}
-              <div class="pick">
-                <span class="pick-code mono">{p.code}</span>
-                <span class="pick-reason">{p.alasan}</span>
-              </div>
-            {/each}
-          </div>
-        {/if}
-        <div class="disc">⚠ Analisis AI bukan saran investasi profesional. Selalu lakukan riset mandiri.</div>
-      {/if}
-    </div>
+    <div class="disc">⚠ Sinyal dihitung otomatis dari indikator teknikal (MA5/MA20/MA50, RSI, MACD). Bukan saran investasi profesional.</div>
   {/if}
 </div>
 
@@ -225,17 +220,22 @@
             border-radius:6px; padding:6px 10px; width:fit-content; }
 .err     { background:rgba(255,61,87,.1); border:1px solid var(--bear); border-radius:8px; padding:10px; color:var(--bear); font-size:13px; }
 .empty   { text-align:center; padding:60px; color:var(--muted); }
-.empty.small { padding:24px; }
 .empty-icon  { font-size:46px; opacity:.3; margin-bottom:14px; }
 .empty-title { font-size:15px; color:var(--text); margin-bottom:6px; }
 .empty-sub   { font-size:12px; }
 .spin  { display:inline-block; animation:spin 1.2s linear infinite; }
-.pulse { animation:pulse 1.6s ease infinite; }
 
 .stats-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
 .stat      { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:12px; text-align:center; }
 .stat-val  { font-size:20px; font-weight:800; }
 .stat-label{ font-size:10px; color:var(--muted); margin-top:4px; }
+
+.signal-bar    { display:flex; align-items:center; justify-content:space-between; gap:8px;
+                 background:var(--card); border:1px solid var(--border); border-radius:8px; padding:8px 12px; }
+.signal-status { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+.rerun-btn { background:transparent; border:1px solid var(--border); border-radius:6px; padding:5px 10px;
+             color:var(--muted); font-size:11px; }
+.rerun-btn:hover { color:var(--text); border-color:var(--accent); }
 
 .table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:8px; }
 table { width:100%; border-collapse:collapse; font-size:12px; }
@@ -244,25 +244,22 @@ th    { text-align:right; padding:8px 10px; color:var(--muted); font-size:10px; 
 th:nth-child(1), th:nth-child(2) { text-align:left; }
 td    { text-align:right; padding:7px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
 td:nth-child(1), td:nth-child(2) { text-align:left; }
+.sig-cell { text-align:center; }
 tbody tr:last-child td { border-bottom:none; }
 tbody tr:hover { background:var(--card); }
 .code  { color:var(--accent); font-weight:800; }
 
-.ai-block  { display:flex; flex-direction:column; gap:10px; }
-.ai-header { display:flex; align-items:center; justify-content:space-between; }
-.rerun-btn { background:transparent; border:1px solid var(--border); border-radius:6px; padding:5px 10px;
-             color:var(--muted); font-size:11px; }
-.rerun-btn:hover { color:var(--text); border-color:var(--accent); }
-.acard  { background:var(--card); border-radius:8px; padding:12px 16px; }
-.alabel { font-size:9px; color:var(--muted); letter-spacing:1.5px; }
-.atext  { color:var(--text); font-size:13px; line-height:1.75; }
-.picks  { display:flex; flex-direction:column; gap:6px; }
-.pick   { display:flex; gap:10px; align-items:baseline; background:var(--card); border-radius:6px; padding:8px 10px; }
-.pick-code   { color:var(--accent); font-weight:800; min-width:56px; }
-.pick-reason { font-size:12px; color:var(--text); }
+.badge      { display:inline-block; padding:3px 9px; border-radius:5px; font-size:11px; font-weight:800;
+              letter-spacing:.5px; }
+.badge-buy  { background:rgba(0,230,118,.14); color:var(--bull); }
+.badge-sell { background:rgba(255,61,87,.14); color:var(--bear); }
+.badge-hold { background:rgba(255,215,64,.14); color:#ffd740; }
+.badge-wait { background:var(--card); color:var(--muted); }
+.badge-na   { background:var(--card); color:var(--muted); }
+.sig-sub    { font-size:9px; color:var(--muted); margin-top:3px; white-space:normal; max-width:120px; }
+
 .disc   { font-size:10px; color:var(--muted); text-align:center; }
 .bull   { color:var(--bull); }
 .mono   { font-family:monospace; }
 @keyframes spin  { to { transform:rotate(360deg); } }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 </style>
