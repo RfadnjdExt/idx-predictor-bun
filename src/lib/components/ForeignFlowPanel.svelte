@@ -5,6 +5,7 @@
   import { detectSignals } from '$lib/signals.js';
 
   const CONCURRENCY = 3;
+  const MAX_BUY_SIGNALS = 5; // berhenti minta data ke Yahoo Finance kalau sudah ketemu segini banyak sinyal BUY
 
   let fileInput  = $state(null);
   let fileName   = $state('');
@@ -12,12 +13,14 @@
   let parseError = $state(null);
   let result     = $state(null); // { totalRows, netBuyCount, cheaperHalfCount, rows }
 
-  // code -> { status: 'loading'|'done'|'error', indicator, lastSignal, price, message }
-  let signalMap = $state({});
-  let checking  = $state(false);
+  // code -> { status: 'loading'|'done'|'error'|'skipped', indicator, lastSignal, price, message }
+  let signalMap   = $state({});
+  let checking    = $state(false);
+  let stoppedEarly = $state(false);
 
-  let doneCount  = $derived(Object.values(signalMap).filter((s) => s.status !== 'loading').length);
-  let totalCount = $derived(result?.rows?.length ?? 0);
+  let checkedCount = $derived(Object.values(signalMap).filter((s) => s.status === 'done' || s.status === 'error').length);
+  let buyCount      = $derived(Object.values(signalMap).filter((s) => s.status === 'done' && s.indicator === 'BUY').length);
+  let totalCount    = $derived(result?.rows?.length ?? 0);
 
   function pickFile() {
     fileInput?.click();
@@ -64,14 +67,20 @@
   async function checkAllSignals() {
     if (!result?.rows?.length) return;
     checking = true;
+    stoppedEarly = false;
     const initial = {};
     for (const r of result.rows) initial[r.code] = { status: 'loading' };
     signalMap = initial;
 
     const queue = [...result.rows];
 
+    function currentBuyCount() {
+      return Object.values(signalMap).filter((s) => s.status === 'done' && s.indicator === 'BUY').length;
+    }
+
     async function worker() {
       while (queue.length) {
+        if (currentBuyCount() >= MAX_BUY_SIGNALS) return; // limit tercapai, jangan request lagi ke Yahoo Finance
         const row = queue.shift();
         try {
           const s = await loadStock(row.code);
@@ -94,6 +103,15 @@
     }
 
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+    // Saham yang belum sempat dicek karena limit BUY sudah tercapai duluan.
+    if (queue.length) {
+      const skipped = {};
+      for (const row of queue) skipped[row.code] = { status: 'skipped' };
+      signalMap = { ...signalMap, ...skipped };
+      stoppedEarly = true;
+    }
+
     checking = false;
   }
 
@@ -148,9 +166,11 @@
     <div class="signal-bar">
       <div class="signal-status">
         {#if checking}
-          <span class="spin">◈</span> Mengecek sinyal teknikal... ({doneCount}/{totalCount})
+          <span class="spin">◈</span> Mengecek sinyal teknikal... ({checkedCount}/{totalCount}, {buyCount} BUY)
+        {:else if stoppedEarly}
+          ⏹ Berhenti otomatis — {buyCount} sinyal BUY ditemukan ({checkedCount}/{totalCount} saham dicek)
         {:else}
-          ✓ Sinyal dicek untuk {doneCount}/{totalCount} saham
+          ✓ Sinyal dicek untuk {checkedCount}/{totalCount} saham ({buyCount} BUY)
         {/if}
       </div>
       {#if !checking}
@@ -180,6 +200,8 @@
               <td class="sig-cell">
                 {#if !sig || sig.status === 'loading'}
                   <span class="badge badge-wait">···</span>
+                {:else if sig.status === 'skipped'}
+                  <span class="badge badge-na" title="Dilewati — limit {MAX_BUY_SIGNALS} sinyal BUY sudah tercapai">—</span>
                 {:else if sig.status === 'error'}
                   <span class="badge badge-na" title={sig.message}>N/A</span>
                 {:else}
