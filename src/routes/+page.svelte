@@ -8,6 +8,7 @@
   import SignalsPanel  from '$lib/components/SignalsPanel.svelte';
   import AIPanel       from '$lib/components/AIPanel.svelte';
   import RealtimeBar   from '$lib/components/RealtimeBar.svelte';
+  import ForeignFlowPanel from '$lib/components/ForeignFlowPanel.svelte';
 
   let query     = $state('BBCA');
   let stock     = $state(null);
@@ -36,6 +37,7 @@
     { label: '📈 Grafik & Indikator', idx: 0 },
     { label: '🎯 Sinyal Trading',     idx: 1 },
     { label: '🤖 Prediksi AI',        idx: 2 },
+    { label: '📄 Foreign Flow',       idx: 3 },
   ];
 
   function handleQuote(q) { liveQuote = q; }
@@ -135,6 +137,8 @@
       {#key stock.ticker}
         <AIPanel {stock} {signals} />
       {/key}
+    {:else if activeTab === 3}
+      <ForeignFlowPanel />
     {/if}
   {/if}
 </main>
