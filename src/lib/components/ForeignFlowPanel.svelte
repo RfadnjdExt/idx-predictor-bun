@@ -12,7 +12,7 @@
   let parseError = $state(null);
   let result     = $state(null); // { totalRows, netBuyCount, cheaperHalfCount, rows }
 
-  // code -> { status: 'loading'|'done'|'error', indicator, score, lastSignal, price, message }
+  // code -> { status: 'loading'|'done'|'error', indicator, lastSignal, price, message }
   let signalMap = $state({});
   let checking  = $state(false);
 
@@ -51,15 +51,14 @@
     }
   }
 
-  // Skor tren sederhana dari indikator hari terakhir, sama seperti di halaman utama:
-  // MA5 vs MA20, MA20 vs MA50, RSI vs 50, MACD histogram vs 0. Rentang -2..+2.
-  function computeIndicator(data) {
-    const last = data.at(-1);
-    if (!last) return { indicator: 'N/A', score: 0 };
-    const score =
-      [last.ma5 > last.ma20, last.ma20 > last.ma50, last.rsi > 50, (last.mh ?? 0) > 0].filter(Boolean).length - 2;
-    const indicator = score >= 1 ? 'BUY' : score <= -1 ? 'SELL' : 'HOLD';
-    return { indicator, score, rsi: last.rsi };
+  // Sama persis dengan badge "SINYAL" di InfoBar.svelte: indikator BUY/SELL
+  // diambil dari TIPE sinyal event PALING BARU yang terdeteksi (Golden Cross,
+  // RSI Oversold, dst), bukan skor tren terpisah — supaya tidak ada dua
+  // definisi "sinyal" yang bisa saling bertentangan di halaman yang sama.
+  function computeIndicator(sigs) {
+    const lastSig = sigs.at(-1);
+    const indicator = lastSig?.type === 'BUY' ? 'BUY' : lastSig?.type === 'SELL' ? 'SELL' : 'HOLD';
+    return { indicator, lastSig };
   }
 
   async function checkAllSignals() {
@@ -77,15 +76,14 @@
         try {
           const s = await loadStock(row.code);
           const sigs = detectSignals(s.data);
-          const { indicator, score } = computeIndicator(s.data);
+          const { indicator, lastSig } = computeIndicator(sigs);
           signalMap = {
             ...signalMap,
             [row.code]: {
               status: 'done',
               indicator,
-              score,
               price: s.price,
-              lastSignal: sigs.at(-1)?.label ?? null,
+              lastSignal: lastSig?.label ?? null,
             },
           };
         } catch (e) {
