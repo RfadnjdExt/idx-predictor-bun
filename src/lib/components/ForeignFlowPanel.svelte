@@ -3,6 +3,7 @@
   import { debugLog, debugError } from '$lib/debug.js';
   import { loadStock } from '$lib/fetch.js';
   import { detectSignals } from '$lib/signals.js';
+  import { untrack } from 'svelte';
 
   const CONCURRENCY = 3;
   const MAX_BUY_SIGNALS = 5; // berhenti minta data ke Yahoo Finance kalau sudah ketemu segini banyak sinyal BUY
@@ -74,18 +75,24 @@
 
     const queue = [...result.rows];
 
-    function currentBuyCount() {
-      return Object.values(signalMap).filter((s) => s.status === 'done' && s.indicator === 'BUY').length;
-    }
+    // Counter lokal biasa (BUKAN state Svelte) — sengaja tidak membaca signalMap
+    // di sini. Membaca state reaktif secara synchronous di dalam fungsi yang
+    // dipanggil dari $effect (sebelum await pertama) membuat Svelte mencatat
+    // state itu sebagai dependency effect tsb. Karena signalMap juga DITULIS
+    // ulang setiap saham selesai dicek, itu memicu $effect jalan lagi dari
+    // awal → reset semua ke loading → request ulang ke semua saham → loop
+    // tanpa henti. Pakai variabel closure biasa supaya tidak ada jejak reaktif.
+    let liveBuyCount = 0;
 
     async function worker() {
       while (queue.length) {
-        if (currentBuyCount() >= MAX_BUY_SIGNALS) return; // limit tercapai, jangan request lagi ke Yahoo Finance
+        if (liveBuyCount >= MAX_BUY_SIGNALS) return; // limit tercapai, jangan request lagi ke Yahoo Finance
         const row = queue.shift();
         try {
           const s = await loadStock(row.code);
           const sigs = detectSignals(s.data);
           const { indicator, lastSig } = computeIndicator(sigs);
+          if (indicator === 'BUY') liveBuyCount += 1;
           signalMap = {
             ...signalMap,
             [row.code]: {
@@ -116,8 +123,12 @@
   }
 
   // Otomatis cek sinyal begitu hasil parsing PDF siap.
+  // untrack() penting di sini: mencegah $effect ini ikut mencatat state apa pun
+  // yang dibaca/ditulis di DALAM checkAllSignals (mis. signalMap) sebagai
+  // dependency-nya sendiri — kalau tidak, effect ini akan re-trigger setiap kali
+  // signalMap berubah dan menyebabkan loop request tanpa henti.
   $effect(() => {
-    if (result?.rows?.length) checkAllSignals();
+    if (result?.rows?.length) untrack(() => checkAllSignals());
   });
 </script>
 
