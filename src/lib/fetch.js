@@ -2,25 +2,16 @@ import { sma, ema, bollinger, calcMACD, calcRSI } from './indicators.js';
 
 export async function loadStock(symbol) {
   const t = symbol.toUpperCase().replace(/\.JK$/, '') + '.JK';
-  const now = Math.floor(Date.now() / 1000);
-  const yr  = now - 365 * 86400;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${t}?interval=1d&period1=${yr}&period2=${now}`;
+  const code = symbol.toUpperCase().replace(/\.JK$/, '');
 
   let json;
-  for (const px of [
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  ]) {
-    try {
-      const ctrl = new AbortController();
-      const tid  = setTimeout(() => ctrl.abort(), 9000);
-      const r    = await fetch(px, { signal: ctrl.signal });
-      clearTimeout(tid);
-      if (!r.ok) continue;
-      json = await r.json();
-      if (json?.chart?.result?.[0]) break;
-    } catch { continue; }
-  }
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 9000);
+    const r    = await fetch(`/api/stock/${code}`, { signal: ctrl.signal });
+    clearTimeout(tid);
+    if (r.ok) json = await r.json();
+  } catch { /* falls through to error below */ }
 
   if (!json?.chart?.result?.[0])
     throw new Error('Gagal mengambil data. Periksa kode saham atau coba lagi.');
